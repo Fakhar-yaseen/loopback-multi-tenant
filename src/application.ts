@@ -1,14 +1,15 @@
 import {BootMixin} from '@loopback/boot';
 import {ApplicationConfig} from '@loopback/core';
+import {RepositoryMixin} from '@loopback/repository';
+import {RestApplication} from '@loopback/rest';
 import {
   RestExplorerBindings,
   RestExplorerComponent,
 } from '@loopback/rest-explorer';
-import {RepositoryMixin} from '@loopback/repository';
-import {RestApplication} from '@loopback/rest';
 import {ServiceMixin} from '@loopback/service-proxy';
 import path from 'path';
 import {MySequence} from './sequence';
+import {CompanySetupService} from './services';
 
 export {ApplicationConfig};
 
@@ -20,6 +21,8 @@ export class BackendApplication extends BootMixin(
 
     // Set up the custom sequence
     this.sequence(MySequence);
+
+    this.service(CompanySetupService);
 
     // Set up default home page
     this.static('/', path.join(__dirname, '../public'));

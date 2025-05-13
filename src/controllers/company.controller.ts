@@ -1,3 +1,4 @@
+import {inject} from '@loopback/core';
 import {
   Count,
   CountSchema,
@@ -7,44 +8,56 @@ import {
   Where,
 } from '@loopback/repository';
 import {
-  post,
-  param,
+  del,
   get,
   getModelSchemaRef,
+  param,
   patch,
+  post,
   put,
-  del,
   requestBody,
   response,
 } from '@loopback/rest';
-import {Company} from '../models';
+import {Companies, Permissions, Role, User} from '../models';
 import {CompanyRepository} from '../repositories';
+import {CompanySetupService} from '../services';
 
 export class CompanyController {
   constructor(
     @repository(CompanyRepository)
-    public companyRepository : CompanyRepository,
+    public companyRepository: CompanyRepository,
+    @inject('services.CompanySetupService')
+    private companyService: CompanySetupService,
   ) {}
 
   @post('/companies')
   @response(200, {
     description: 'Company model instance',
-    content: {'application/json': {schema: getModelSchemaRef(Company)}},
+    content: {'application/json': {schema: getModelSchemaRef(Companies)}},
   })
   async create(
     @requestBody({
       content: {
         'application/json': {
-          schema: getModelSchemaRef(Company, {
+          schema: getModelSchemaRef(Companies, {
             title: 'NewCompany',
             exclude: ['id'],
           }),
         },
       },
     })
-    company: Omit<Company, 'id'>,
-  ): Promise<Company> {
-    return this.companyRepository.create(company);
+    company: Omit<Companies, 'id'>,
+  ): Promise<Companies | null> {
+    await this.companyRepository.create(company);
+
+    const existingCompany = await this.companyRepository.findOne({
+      order: ['id DESC'],
+    });
+
+    if (existingCompany) {
+      await this.companyService.initializeCompany(String(existingCompany.id));
+    }
+    return existingCompany;
   }
 
   @get('/companies/count')
@@ -53,7 +66,7 @@ export class CompanyController {
     content: {'application/json': {schema: CountSchema}},
   })
   async count(
-    @param.where(Company) where?: Where<Company>,
+    @param.where(Companies) where?: Where<Companies>,
   ): Promise<Count> {
     return this.companyRepository.count(where);
   }
@@ -65,14 +78,14 @@ export class CompanyController {
       'application/json': {
         schema: {
           type: 'array',
-          items: getModelSchemaRef(Company, {includeRelations: true}),
+          items: getModelSchemaRef(Companies, {includeRelations: true}),
         },
       },
     },
   })
   async find(
-    @param.filter(Company) filter?: Filter<Company>,
-  ): Promise<Company[]> {
+    @param.filter(Companies) filter?: Filter<Companies>,
+  ): Promise<Companies[]> {
     return this.companyRepository.find(filter);
   }
 
@@ -85,12 +98,12 @@ export class CompanyController {
     @requestBody({
       content: {
         'application/json': {
-          schema: getModelSchemaRef(Company, {partial: true}),
+          schema: getModelSchemaRef(Companies, {partial: true}),
         },
       },
     })
-    company: Company,
-    @param.where(Company) where?: Where<Company>,
+    company: Companies,
+    @param.where(Companies) where?: Where<Companies>,
   ): Promise<Count> {
     return this.companyRepository.updateAll(company, where);
   }
@@ -100,14 +113,15 @@ export class CompanyController {
     description: 'Company model instance',
     content: {
       'application/json': {
-        schema: getModelSchemaRef(Company, {includeRelations: true}),
+        schema: getModelSchemaRef(Companies, {includeRelations: true}),
       },
     },
   })
   async findById(
-    @param.path.string('id') id: string,
-    @param.filter(Company, {exclude: 'where'}) filter?: FilterExcludingWhere<Company>
-  ): Promise<Company> {
+    @param.path.string('id') id: number,
+    @param.filter(Companies, {exclude: 'where'})
+    filter?: FilterExcludingWhere<Companies>,
+  ): Promise<Companies> {
     return this.companyRepository.findById(id, filter);
   }
 
@@ -116,15 +130,15 @@ export class CompanyController {
     description: 'Company PATCH success',
   })
   async updateById(
-    @param.path.string('id') id: string,
+    @param.path.string('id') id: number,
     @requestBody({
       content: {
         'application/json': {
-          schema: getModelSchemaRef(Company, {partial: true}),
+          schema: getModelSchemaRef(Companies, {partial: true}),
         },
       },
     })
-    company: Company,
+    company: Companies,
   ): Promise<void> {
     await this.companyRepository.updateById(id, company);
   }
@@ -134,8 +148,8 @@ export class CompanyController {
     description: 'Company PUT success',
   })
   async replaceById(
-    @param.path.string('id') id: string,
-    @requestBody() company: Company,
+    @param.path.string('id') id: number,
+    @requestBody() company: Companies,
   ): Promise<void> {
     await this.companyRepository.replaceById(id, company);
   }
@@ -144,7 +158,43 @@ export class CompanyController {
   @response(204, {
     description: 'Company DELETE success',
   })
-  async deleteById(@param.path.string('id') id: string): Promise<void> {
+  async deleteById(@param.path.string('id') id: number): Promise<void> {
     await this.companyRepository.deleteById(id);
+  }
+
+  @post('/companies/init')
+  async createCompanyAndInitialize(@requestBody() body: {companyId: string}) {
+    const {companyId} = body;
+
+    // Step 1: Create DB + Tables
+    await this.companyService.initializeCompany(companyId);
+
+    return {
+      message: `Company ${companyId} initialized`,
+      // adminUser,
+    };
+  }
+
+  @post('/users')
+  async createUser(@requestBody() userData: Omit<User, 'id'>): Promise<User> {
+    const userRepo = this.companyService.getUserRepository('2');
+    const user = await userRepo.create(userData);
+    return user;
+  }
+
+  @post('/roles')
+  async createRole(@requestBody() roleData: Omit<Role, 'id'>): Promise<Role> {
+    const userRepo = this.companyService.getRoleRepository('1');
+    const user = await userRepo.create(roleData);
+    return user;
+  }
+
+  @post('/permissions')
+  async createPermission(
+    @requestBody() permissionData: Omit<Permissions, 'id'>,
+  ): Promise<Permissions> {
+    const userRepo = this.companyService.getPermissionRepository('1');
+    const user = await userRepo.create(permissionData);
+    return user;
   }
 }
